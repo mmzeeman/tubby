@@ -36,10 +36,10 @@
 ]).
 
 -record(state, {
-    limit=0,
-    task_sup,
-    refs,
-    queue=queue:new()
+    limit=0,            % The number of tasks which can be started. 
+    task_sup,           % The task supervisors.
+    refs,               % References to currently running tasks.
+    waiting=queue:new()   % waiting
 }).
 
 -record(task, {
@@ -96,9 +96,9 @@ handle_call({run, _Args}, _From, S=#state{limit=N}) when N =< 0 ->
 handle_call({sync, Args}, _From, #state{limit=N, task_sup=Sup, refs=Refs}=State) when N > 0 ->
     {Pid, NewRefs} = start_and_monitor(Sup, Args, Refs),
     {reply, {ok, Pid}, State#state{limit=N-1, refs=NewRefs}};
-handle_call({sync, Args}, From, #state{queue=Queue}=State) ->
-    NewQueue = queue:in(#task{from=From, args=Args}, Queue),
-    {noreply, State#state{queue=NewQueue}};
+handle_call({sync, Args}, From, #state{waiting=Waiting}=State) ->
+    Waiting1 = queue:in(#task{from=From, args=Args}, Waiting),
+    {noreply, State#state{waiting=Waiting1}};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -109,9 +109,9 @@ handle_call(Msg, _From, State) ->
 handle_cast({async, Args}, #state{limit=N, task_sup=Sup, refs=Refs}=State) when N > 0 ->
     {_Pid, NewRefs} = start_and_monitor(Sup, Args, Refs),
     {noreply, State#state{limit=N-1, refs=NewRefs}};
-handle_cast({async, Args}, #state{limit=N, queue=Queue}=State) when N =< 0 ->
-    NewQueue = queue:in(#task{args=Args}, Queue),
-    {noreply, State#state{queue=NewQueue}};
+handle_cast({async, Args}, #state{limit=N, waiting=Waiting}=State) when N =< 0 ->
+    Waiting1 = queue:in(#task{args=Args}, Waiting),
+    {noreply, State#state{waiting=Waiting1}};
 handle_cast(Msg, State) ->
     {stop, {unknown_cast, Msg}, State}.
     
@@ -143,14 +143,14 @@ handle_task_down(Ref, #state{limit=L, task_sup=Sup, refs=Refs}=State) ->
     RefsDel = sets:del_element(Ref, Refs),
 
     %% There is room to start a task from the queue
-    case queue:out(State#state.queue) of
-        {{value, #task{from=From, args=Args}}, Q} ->
+    case queue:out(State#state.waiting) of
+        {{value, #task{from=From, args=Args}}, Waiting1} ->
             {Pid, NewRefs} = start_and_monitor(Sup, Args, RefsDel),
             case From of
                 undefined -> ok;
                 _ -> gen_server:reply(From, {ok, Pid})
             end,
-            State#state{refs=NewRefs, queue=Q};
+            State#state{refs=NewRefs, waiting=Waiting1};
         {empty, _} ->
             State#state{limit=L+1, refs=RefsDel}
     end.
