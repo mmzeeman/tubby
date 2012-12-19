@@ -1,9 +1,14 @@
 {application, tubby,
  [
-  {description, "Process pool for tasks"},
+  {description, "Process pool for tasks."},
   {vsn, "1"},
   {mod, {tubby_app, []}},
-  {modules, [tubby, tubby_app, tubby_app_sup, tubby_server, tubby_task_sup]},
+  {modules, [
+  	tubby, 
+  	tubby_app, 
+  	tubby_app_sup, 
+  	tubby_server, 
+  	tubby_task_sup]},
   {registered, []},
   {applications, [kernel, stdlib]},
   {env, []}
