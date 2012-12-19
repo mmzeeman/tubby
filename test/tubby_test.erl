@@ -17,7 +17,8 @@ application_start_stop_test() ->
 tubby_test_() ->
     {foreach, local, fun setup/0, fun teardown/1,
      [ ?_test(start_stop_t()),
-       ?_test(run_task_t())
+       ?_test(run_task_t()),
+       ?_test(queue_task_t())
      ]
     }.
 
@@ -54,6 +55,28 @@ run_task_t() ->
 	{ok, "data 2"} = gen_server:call(Pid2, get_data),
 	{ok, "data 3"} = gen_server:call(Pid3, get_data),	
 	{ok, "data 4"} = gen_server:call(Pid4, get_data),
+
+	%% Kill one task
+	exit(Pid2, exit),
+	{ok, "data 3"} = gen_server:call(Pid3, get_data),	
+	{ok, "data 4"} = gen_server:call(Pid4, get_data),
+	{2, 0, 1} = tubby:status(tobbe),
+
+	tubby:stop(tobbe).
+
+queue_task_t() ->
+	{ok, _Pid} = tubby:start(tobbe, {tubby_test_task, start_link, []}, 3),
+
+	ok = tubby:queue(tobbe, ["queued 1"]),
+	{1, 0, 2} = tubby:status(tobbe),
+	ok = tubby:queue(tobbe, ["queued 2"]),
+	{2, 0, 1} = tubby:status(tobbe),
+	ok = tubby:queue(tobbe, ["queued 3"]),
+	{3, 0, 0} = tubby:status(tobbe),
+	ok = tubby:queue(tobbe, ["queued 4"]),
+	{3, 1, 0} = tubby:status(tobbe),
+	ok = tubby:queue(tobbe, ["queued 5"]),
+	{3, 2, 0} = tubby:status(tobbe),
 
 	tubby:stop(tobbe).
 

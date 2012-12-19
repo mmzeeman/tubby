@@ -18,29 +18,34 @@
 %% limitations under the License.
 
 -module(tubby_app_sup).
--author("Maas-Maarten Zeeman <mmzeeman@xs4all.nl>").
-
 -behaviour(supervisor).
 
--export([start_link/0, init/1]).
+-export([
+	start_link/0, 
+	start_child/1, 
+	stop_child/1
+]).
 
--export([start_child/1, stop_child/1]).
+% supervisor callback.
+-export([init/1]).
 
 % @doc The module is a supervisor. 
+-spec start_link() -> {ok, pid()} | {error, _} | ignore.
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-% @doc 
-init(_Args) ->
-    {ok, {{one_for_one, 20, 3600}, []}}.
-
-% @doc
+% @doc Start a dynamic child.
 start_child(ChildSpec) ->
     supervisor:start_child(?MODULE, ChildSpec).
 
-% @doc
+% @doc Stop a child of the app supervisor. This terminates, and
+% delete's it.
 stop_child(Name) ->
     case supervisor:terminate_child(?MODULE, Name) of
         ok -> supervisor:delete_child(?MODULE, Name);
         {error, _}=Error -> Error
     end.
+
+% supervisor api 
+init(_Args) ->
+    {ok, {{one_for_one, 20, 3600}, []}}.

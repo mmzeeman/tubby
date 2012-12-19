@@ -18,13 +18,23 @@
 %% limitations under the License.
 
 -module(tubby_task_sup).
--export([start_link/1, init/1]).
 -behaviour(supervisor).
 
+% api
+-export([start_link/1]).
+
+% supervisor callback.
+-export([init/1]).
+
+%% @doc Start the task supervisor.
+-spec start_link(MFA) -> {ok, pid()} | {error, _} | ignore when
+	MFA :: mfa().
 start_link({_Module, _Function, _Args}=MFA) ->
     supervisor:start_link(?MODULE, MFA).
 
 init({Module, Function, Args}) ->
+	% TODO: add an option to configure a task supervisor which
+	% can restart tasks if they fail.
     {ok, {{simple_one_for_one, 10, 60},
           [{tubby_task, {Module, Function, Args},
             temporary, 5000, worker, [Module]}]}}.

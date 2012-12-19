@@ -32,14 +32,15 @@
     run/2, 
     queue_wait/2, queue_wait/3,
     queue/2, 
+    status/1,
     stop/1
 ]).
 
 -record(state, {
     limit=0,            % The number of tasks which can be started. 
     task_sup,           % The task supervisors.
-    refs,               % References to currently running tasks.
-    waiting=queue:new()   % waiting
+    running,            % References to currently running tasks.
+    waiting=queue:new() % Waiting tasks. TODO: add limit
 }).
 
 -record(task, {
@@ -47,17 +48,17 @@
     args=undefined
 }).
 
-start(Name, Sup, MFA, Limit) when is_atom(Name), is_integer(Limit) ->
+start(Name, Sup, MFA, Limit) when is_atom(Name), Limit > 0 ->
     start({local, Name}, Sup, MFA, Limit);
-start(Name, Sup, MFA, Limit) when is_integer(Limit) ->
+start(Name, Sup, MFA, Limit) when Limit > 0 ->
     gen_server:start(Name, ?MODULE, {Sup, MFA, Limit}, []).
 
 start_link(Name, MFA, Limit) ->
     start_link(Name, self(), MFA, Limit).
 
-start_link(Name, Sup, MFA, Limit) when is_atom(Name), is_integer(Limit) ->
+start_link(Name, Sup, MFA, Limit) when is_atom(Name), Limit > 0 ->
     start_link({local, Name}, Sup, MFA, Limit);
-start_link(Name, Sup, MFA, Limit) when is_integer(Limit) ->
+start_link(Name, Sup, MFA, Limit) when Limit > 0 ->
     gen_server:start_link(Name, ?MODULE, {Sup, MFA, Limit}, []).
 
 % @doc Start a task on pool Name with Args. When there is no room in the
@@ -78,6 +79,10 @@ queue_wait(Name, Args, Timeout) ->
 queue(Name, Args) ->
     gen_server:cast(Name, {async, Args}).
 
+% @doc Start a task on pool Name with Args, continue immediately.
+status(Name) ->
+    gen_server:call(Name, status).
+
 % @doc Stop the pool. Also stops all currently running tasks.
 stop(Name) ->
     gen_server:call(Name, stop).
@@ -85,20 +90,23 @@ stop(Name) ->
 %% Gen server callbacks
 init({Sup, MFA, Limit}) ->
     self() ! {start_task_supervisor, Sup, MFA},
-    {ok, #state{limit=Limit, refs=sets:new()}}.
+    {ok, #state{limit=Limit, running=sets:new()}}.
 
-handle_call({run, Args}, _From, #state{limit=N, task_sup=Sup, refs=Refs}=State) when N > 0 ->
-    {Pid, NewRefs} = start_and_monitor(Sup, Args, Refs),
-    {reply, {ok, Pid}, State#state{limit=N-1, refs=NewRefs}};
+handle_call({run, Args}, _From, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
+    {Pid, Running1} = start_and_monitor(Sup, Args, Running),
+    {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}};
 handle_call({run, _Args}, _From, S=#state{limit=N}) when N =< 0 ->
     {reply, {error, full}, S};
 
-handle_call({sync, Args}, _From, #state{limit=N, task_sup=Sup, refs=Refs}=State) when N > 0 ->
-    {Pid, NewRefs} = start_and_monitor(Sup, Args, Refs),
-    {reply, {ok, Pid}, State#state{limit=N-1, refs=NewRefs}};
+handle_call({sync, Args}, _From, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
+    {Pid, Running1} = start_and_monitor(Sup, Args, Running),
+    {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}};
 handle_call({sync, Args}, From, #state{waiting=Waiting}=State) ->
     Waiting1 = queue:in(#task{from=From, args=Args}, Waiting),
     {noreply, State#state{waiting=Waiting1}};
+
+handle_call(status, _From, #state{running=Running, waiting=Waiting, limit=Limit}=State) ->
+    {reply, {sets:size(Running), queue:len(Waiting), Limit}, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -106,9 +114,9 @@ handle_call(Msg, _From, State) ->
     {stop, {unknown_call, Msg}, State}.
 
 % @doc 
-handle_cast({async, Args}, #state{limit=N, task_sup=Sup, refs=Refs}=State) when N > 0 ->
-    {_Pid, NewRefs} = start_and_monitor(Sup, Args, Refs),
-    {noreply, State#state{limit=N-1, refs=NewRefs}};
+handle_cast({async, Args}, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
+    {_Pid, Running1} = start_and_monitor(Sup, Args, Running),
+    {noreply, State#state{limit=N-1, running=Running1}};
 handle_cast({async, Args}, #state{limit=N, waiting=Waiting}=State) when N =< 0 ->
     Waiting1 = queue:in(#task{args=Args}, Waiting),
     {noreply, State#state{waiting=Waiting1}};
@@ -118,7 +126,7 @@ handle_cast(Msg, State) ->
 
 % @doc
 handle_info({'DOWN', Ref, process, _Pid, _}, #state{}=State) ->
-    NewState = case sets:is_element(Ref, State#state.refs) of
+    NewState = case sets:is_element(Ref, State#state.running) of
         true -> handle_task_down(Ref, State);
         false -> State
     end,
@@ -139,23 +147,23 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, _State) ->
     ok.
 
-handle_task_down(Ref, #state{limit=L, task_sup=Sup, refs=Refs}=State) ->
-    RefsDel = sets:del_element(Ref, Refs),
+handle_task_down(Ref, #state{limit=L, task_sup=Sup, running=Running}=State) ->
+    Running1 = sets:del_element(Ref, Running),
 
     %% There is room to start a task from the queue
     case queue:out(State#state.waiting) of
         {{value, #task{from=From, args=Args}}, Waiting1} ->
-            {Pid, NewRefs} = start_and_monitor(Sup, Args, RefsDel),
+            {Pid, Running2} = start_and_monitor(Sup, Args, Running1),
             case From of
                 undefined -> ok;
                 _ -> gen_server:reply(From, {ok, Pid})
             end,
-            State#state{refs=NewRefs, waiting=Waiting1};
+            State#state{running=Running2, waiting=Waiting1};
         {empty, _} ->
-            State#state{limit=L+1, refs=RefsDel}
+            State#state{limit=L+1, running=Running1}
     end.
 
-start_and_monitor(Sup, Args, Refs) ->
+start_and_monitor(Sup, Args, Running) ->
     {ok, Pid} = supervisor:start_child(Sup, Args),
     NewRef = erlang:monitor(process, Pid),
-    {Pid, sets:add_element(NewRef, Refs)}.
+    {Pid, sets:add_element(NewRef, Running)}.

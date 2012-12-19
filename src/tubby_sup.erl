@@ -18,14 +18,23 @@
 %% limitations under the License.
 
 -module(tubby_sup).
-
--export([start_link/3, init/1]).
-
 -behaviour(supervisor).
- 
+
+% api
+-export([start_link/3]).
+
+% supervisor callback.
+-export([init/1]).
+
+% @doc Start the supervisor of the tubby_server and the tubby task supervisor.
+-spec start_link(Name, MFA, Limit) -> {ok, pid()} | {error, _} | ignore when
+	Name :: atom() | {local, atom()} | {global, atom()} | {via, module(), atom()},
+	MFA :: mfa(),
+	Limit :: integer().
 start_link(Name, MFA, Limit) ->
 	supervisor:start_link(?MODULE, {Name, MFA, Limit}).
- 
+
+%
 init({Name, MFA, Limit}) ->
 	{ok, {{one_for_all, 1, 3600},
 	[{tubby_server,

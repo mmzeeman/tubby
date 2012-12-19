@@ -18,8 +18,6 @@
 %% limitations under the License.
 
 -module(tubby_app).
--author("Maas-Maarten Zeeman <mmzeeman@xs4all.nl>").
-
 -behaviour(application).
 
 %% Application callbacks
