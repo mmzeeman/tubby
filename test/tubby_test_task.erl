@@ -8,12 +8,15 @@
 %% gen_server callback api
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 
--export([start_link/1]).
+-export([start_link/1, start_link/2]).
 
 -record(state, {data}).
 
 start_link(Data) ->
 	gen_server:start_link(?MODULE, Data, []).
+
+start_link(Name, Data) ->
+	gen_server:start_link(Name, ?MODULE, Data, []).
 
 init(Data) ->
 	{ok, #state{data=Data}}.

@@ -93,14 +93,22 @@ init({Sup, MFA, Limit}) ->
     {ok, #state{limit=Limit, running=sets:new()}}.
 
 handle_call({run, Args}, _From, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
-    {Pid, Running1} = start_and_monitor(Sup, Args, Running),
-    {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}};
-handle_call({run, _Args}, _From, S=#state{limit=N}) when N =< 0 ->
-    {reply, {error, full}, S};
+    case start_and_monitor(Sup, Args, Running) of
+        {error, _E}=Error ->
+            {reply, Error, State};
+        {Pid, Running1} ->
+            {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}}
+    end;
+handle_call({run, _Args}, _From, #state{limit=N}=State) when N =< 0 ->
+    {reply, {error, full}, State};
 
 handle_call({sync, Args}, _From, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
-    {Pid, Running1} = start_and_monitor(Sup, Args, Running),
-    {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}};
+    case start_and_monitor(Sup, Args, Running) of
+        {error, _E}=Error ->
+            {reply, Error, State};
+        {Pid, Running1} ->
+            {reply, {ok, Pid}, State#state{limit=N-1, running=Running1}}
+    end;
 handle_call({sync, Args}, From, #state{waiting=Waiting}=State) ->
     Waiting1 = queue:in(#task{from=From, args=Args}, Waiting),
     {noreply, State#state{waiting=Waiting1}};
@@ -115,8 +123,13 @@ handle_call(Msg, _From, State) ->
 
 % @doc 
 handle_cast({async, Args}, #state{limit=N, task_sup=Sup, running=Running}=State) when N > 0 ->
-    {_Pid, Running1} = start_and_monitor(Sup, Args, Running),
-    {noreply, State#state{limit=N-1, running=Running1}};
+    case start_and_monitor(Sup, Args, Running) of
+        {error, _E}=Error ->
+            error_logger:warning_msg("Could not start task, ~p: ~p~n", [Args, Error]),
+            {norepy, State};
+        {_Pid, Running1} ->
+            {noreply, State#state{limit=N-1, running=Running1}}
+    end;
 handle_cast({async, Args}, #state{limit=N, waiting=Waiting}=State) when N =< 0 ->
     Waiting1 = queue:in(#task{args=Args}, Waiting),
     {noreply, State#state{waiting=Waiting1}};
@@ -125,6 +138,9 @@ handle_cast(Msg, State) ->
     
 
 % @doc
+handle_info({'DOWN', _Ref, process, _Pid, shutdown}, #state{}=State) ->
+    %% We are shutting down and don't have to start new tasks
+    {noreply, State};
 handle_info({'DOWN', Ref, process, _Pid, _}, #state{}=State) ->
     NewState = case sets:is_element(Ref, State#state.running) of
         true -> handle_task_down(Ref, State);
@@ -153,17 +169,34 @@ handle_task_down(Ref, #state{limit=L, task_sup=Sup, running=Running}=State) ->
     %% There is room to start a task from the queue
     case queue:out(State#state.waiting) of
         {{value, #task{from=From, args=Args}}, Waiting1} ->
-            {Pid, Running2} = start_and_monitor(Sup, Args, Running1),
-            case From of
-                undefined -> ok;
-                _ -> gen_server:reply(From, {ok, Pid})
-            end,
-            State#state{running=Running2, waiting=Waiting1};
+            case start_and_monitor(Sup, Args, Running1) of
+                {error, _E}=Error ->
+                    case From of
+                        undefined ->
+                            error_logger:warning_msg("Could not start task ~p: ~p~n", [Args, Error]), 
+                            ok;
+                        _ -> 
+                            gen_server:reply(From, Error)
+                    end,
+                    handle_task_down(Ref, State#state{running=Running1, waiting=Waiting1});
+                {Pid, Running2} -> 
+                    case From of
+                        undefined -> 
+                            ok;
+                        _ -> 
+                            gen_server:reply(From, {ok, Pid})
+                    end,
+                    State#state{running=Running2, waiting=Waiting1}
+            end;
         {empty, _} ->
             State#state{limit=L+1, running=Running1}
     end.
 
 start_and_monitor(Sup, Args, Running) ->
-    {ok, Pid} = supervisor:start_child(Sup, Args),
-    NewRef = erlang:monitor(process, Pid),
-    {Pid, sets:add_element(NewRef, Running)}.
+    case supervisor:start_child(Sup, Args) of
+        {ok, Pid} ->
+            NewRef = erlang:monitor(process, Pid),
+            {Pid, sets:add_element(NewRef, Running)};
+        {error, _E}=Error ->
+            Error
+    end.

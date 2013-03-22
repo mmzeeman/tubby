@@ -18,7 +18,8 @@ tubby_test_() ->
     {foreach, local, fun setup/0, fun teardown/1,
      [ ?_test(start_stop_t()),
        ?_test(run_task_t()),
-       ?_test(queue_task_t())
+       ?_test(queue_task_t()),
+       ?_test(named_task_t())
      ]
     }.
 
@@ -80,5 +81,11 @@ queue_task_t() ->
 
 	tubby:stop(tobbe).
 
+named_task_t() ->
+	{ok, _Pid} = tubby:start(tobbe, {tubby_test_task, start_link, []}),
+	{ok, Pid} = tubby:run(tobbe, [{local, testing}, "data"]),
+	{error, {already_started, _ThePid}} = 
+		tubby:run(tobbe, [{local, testing}, "data"]),
+	tubby:stop(tobbe).
 
 
