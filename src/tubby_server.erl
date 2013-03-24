@@ -27,8 +27,7 @@
 
 -export([
     start/4, 
-    start_link/3,
-    start_link/4, 
+    start_link/3, start_link/4, 
     run/2, 
     queue_wait/2, queue_wait/3,
     queue/2, 
