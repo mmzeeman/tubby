@@ -5,7 +5,7 @@ A process pool for running tasks.
 
 Example
 
-<pre>
+```erlang
 tubby:start(my_worker_pool, {my_worker, start_link, []}),
 
 %% Start a worker on the pool.
@@ -17,4 +17,4 @@ ok = tubby:queue(my_worker_pool, [Arg1, Arg2]),
 
 %% Or queue it, and wait for 10000 msecs until there is room.   
 {ok, Pid} = tubby:queue_wait(my_worker_pool, [Arg1, Arg2], 10000),
-</pre>
+```
