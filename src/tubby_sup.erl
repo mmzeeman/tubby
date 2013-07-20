@@ -1,9 +1,9 @@
 %% @author Maas-Maarten Zeeman <mmzeeman@xs4all.nl>
-%% @copyright 2012 Maas-Maarten Zeeman
+%% @copyright 2012, 2013 Maas-Maarten Zeeman
 %%
 %% @doc Process Pool for Tasks.
 %%
-%% Copyright 2012 Maas-Maarten Zeeman
+%% Copyright 2012, 2013 Maas-Maarten Zeeman
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@
 -spec start_link(Name, MFA, Limit) -> {ok, pid()} | {error, _} | ignore when
 	Name :: atom() | {local, atom()} | {global, atom()} | {via, module(), atom()},
 	MFA :: mfa(),
-	Limit :: integer().
+	Limit :: pos_integer().
 start_link(Name, MFA, Limit) ->
 	supervisor:start_link(?MODULE, {Name, MFA, Limit}).
 

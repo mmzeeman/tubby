@@ -1,9 +1,9 @@
 %% @author Maas-Maarten Zeeman <mmzeeman@xs4all.nl>
-%% @copyright 2012 Maas-Maarten Zeeman
+%% @copyright 2012, 2013 Maas-Maarten Zeeman
 %%
 %% @doc Process Pool for Tasks.
 %%
-%% Copyright 2012 Maas-Maarten Zeeman
+%% Copyright 2012, 2013 Maas-Maarten Zeeman
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,6 +32,10 @@
 
 % @doc Get a child spec. This can be used to start a process pool in the
 % supervision tree of another application.
+-spec child_spec(Name, MFA, Limit) -> supervisor:child_spec() when
+      Name :: atom() | {local, atom()} | {global, atom()} | {via, module(), atom()},
+      MFA :: mfa(),
+      Limit :: undefined | pos_integer().
 child_spec(Name, MFA, Limit) when is_integer(Limit), Limit > 0 ->
     {Name, 
         {tubby_sup, start_link, [Name, MFA, Limit]},
@@ -51,7 +55,7 @@ start(Name, MFA) ->
 -spec start(Name, MFA, Limit) -> {ok, pid()} when
       Name :: atom() | {local, atom()} | {global, atom()} | {via, module(), term()},
       MFA :: mfa(),
-      Limit :: undefined | integer().
+      Limit :: undefined | pos_integer().
 start(Name, MFA, Limit) when is_integer(Limit), Limit > 0 ->
     ChildSpec = child_spec(Name, MFA, Limit),
     tubby_app_sup:start_child(ChildSpec).
@@ -80,7 +84,7 @@ queue_wait(Name, Args) ->
 -spec queue_wait(Name, Args, Timeout) -> {ok, pid()} when
     Name :: atom() | {global, atom()} | {via, module(), atom()},
     Args :: list(),
-    Timeout :: integer() | infinity.
+    Timeout :: non_neg_integer() | infinity.
 queue_wait(Name, Args, Timeout) ->
     tubby_server:queue_wait(Name, Args, Timeout).
 
@@ -96,9 +100,9 @@ queue(Name, Args) ->
 % the current limit.
 -spec status(Name) -> {Running, Waiting, Limit} when
     Name :: atom() | {global, atom()} | {via, module(), atom()},
-    Running :: integer(),
-    Waiting :: integer(),
-    Limit :: integer().
+    Running :: non_neg_integer(),
+    Waiting :: non_neg_integer(),
+    Limit :: non_neg_integer().
 status(Name) ->
     tubby_server:status(Name).
 
